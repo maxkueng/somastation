@@ -18,7 +18,7 @@ var SomaStationStream = require('somastation'),
 
 new SomaStationStream('groovesalad')
     .pipe(through(function (track) {
-        console.log(new Date());
+        // track.time is the UTC unix offset in milliseconds
         console.log(track);
     }));
 ```
@@ -26,18 +26,18 @@ new SomaStationStream('groovesalad')
 Will print:
 
 ```
-Thu Dec 26 2013 17:14:11 GMT+0100 (CET)
-{ artist: 'Quant',
-  title: 'Sauna Grease',
-  album: 'Quantastical Quantasm' }
-Thu Dec 26 2013 17:15:12 GMT+0100 (CET)
-{ artist: 'Hooverphonic',
-  title: '2wicky',
-  album: 'A New Stereophonic Sound Spect' }
-Thu Dec 26 2013 17:20:18 GMT+0100 (CET)
-{ artist: 'Beanfield',
-  title: 'Abstractions',
-  album: 'Human Patters' }
+{ time: 1388248804000,
+  artist: 'Speedometer',
+  title: 'Wake Up Afternoon',
+  album: 'Private' }
+{ time: 1388249144000,
+  artist: 'Visit Venus',
+  title: 'Stellar Jungle',
+  album: 'Magic Fly Variations' }
+{ time: 1388249562000,
+  artist: 'Gate Zero',
+  title: 'Radio Overboard',
+  album: '[THN086] Radio overBoard' }
 
 ...
 ```

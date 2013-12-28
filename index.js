@@ -1,9 +1,26 @@
 var util = require('util'),
 	Readable = require('stream').Readable
 	http = require('http'),
-	cheerio = require('cheerio')
+	cheerio = require('cheerio'),
+	moment = require('moment-timezone');
 
 exports = module.exports = SomaStream;
+
+function soma2utc (timestr) {
+	var now, soma, matches = /(\d\d):(\d\d):(\d\d)/.exec(timestr);
+	if (!matches) { return null; }
+
+	now = moment.utc();
+	soma = moment.tz(now, 'US/Pacific');
+	soma.subtract('m', soma.zone());
+	soma.hours(matches[1]);
+	soma.minutes(matches[2]);
+	soma.seconds(matches[3]);
+	soma.milliseconds(0);
+	soma.utc();
+
+	return +soma;
+}
 
 function getStationHTML (stationId, callback) {
 	var url = 'http://somafm.com/recent/' + stationId + '.html';
@@ -76,6 +93,7 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				self.currentTrack = trackId;
 
 				self.push({
+					time: soma2utc(time),
 					artist: artist,
 					title: title,
 					album: album
