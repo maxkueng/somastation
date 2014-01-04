@@ -68,7 +68,7 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 	var self = this;
 
 	getStationHTML(self.stationId, function (err, html) {
-		if (err) { return; } //self.emit('error', err); }
+		if (err) { return callback(); } //self.emit('error', err); }
 
 		var $ = cheerio.load(html),
 			rows;
