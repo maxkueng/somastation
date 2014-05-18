@@ -1,31 +1,21 @@
 var util = require('util'),
 	Readable = require('stream').Readable
 	http = require('http'),
-	cheerio = require('cheerio'),
-	moment = require('moment-timezone');
+	parseXML = require('xml2js').parseString;
 
 exports = module.exports = SomaStream;
 
-function soma2utc (timestr) {
-	var now, soma, matches = /(\d\d):(\d\d):(\d\d)/.exec(timestr);
-	if (!matches) { return null; }
+function getStationXML (stationId, callback) {
+	var options = {
+		hostname: 'android.somafm.com',
+		port: 80,
+		path: '/songs/' + stationId + '.xml',
+		headers: {
+			'User-Agent': 'SomaFMAndroid/2.2.2/3.4.0-gadb2201'
+		}
+	};
 
-	now = moment.utc();
-	soma = moment.tz(now, 'US/Pacific');
-	soma.subtract('m', soma.zone());
-	soma.hours(matches[1]);
-	soma.minutes(matches[2]);
-	soma.seconds(matches[3]);
-	soma.milliseconds(0);
-	soma.utc();
-
-	return +soma;
-}
-
-function getStationHTML (stationId, callback) {
-	var url = 'http://somafm.com/recent/' + stationId + '.html';
-
-	http.get(url, function (res) {
+	http.get(options, function (res) {
 		var body = '';
 		
 		if (res.statusCode !== 200) { callback(new Error('Couldn\'t fetch ' + url)); }
@@ -67,25 +57,21 @@ util.inherits(SomaStream, Readable);
 SomaStream.prototype.checkNowPlaying = function (callback) {
 	var self = this;
 
-	getStationHTML(self.stationId, function (err, html) {
+	getStationXML(self.stationId, function (err, xml) {
 		if (err) { return callback(); } //self.emit('error', err); }
 
-		var $ = cheerio.load(html),
-			rows;
+		parseXML(xml, function (err, result) {
+			if (err) { return; }
+			if (!result.songs || !result.songs.song || !result.songs.song.length) { return; }
 
-		rows = $('table tr');
-		rows.each(function (index, row) {
-			var cols, time, artist, title, album, trackId;
+			var song, time, artist, title, album, trackId;
 
-			cols = $(row).children('td');
-			if (cols.length !== 5) { return; }
+			song = result.songs.song[0];
 
-			time = $(cols[0]).text().trim();
-			if (!(/\(now\)/i.test(time))) { return; }
-
-			artist = $(cols[1]).text().trim();
-			title = $(cols[2]).text().trim();
-			album = $(cols[3]).text().trim();
+			artist = String(song.artist[0]).trim();
+			title = String(song.title[0]).trim();
+			album = String(song.album[0]).trim();
+			time = Number(song.date[0]) * 1000;
 			
 			trackId = artist + '-' + title;
 
@@ -93,7 +79,7 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				self.currentTrack = trackId;
 
 				self.push({
-					time: soma2utc(time),
+					time: time,
 					artist: artist,
 					title: title,
 					album: album
