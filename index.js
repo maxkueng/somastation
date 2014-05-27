@@ -52,7 +52,6 @@ function SomaStream (stationId, options) {
 	}
 
 	this.pollInterval = options.pollInterval || 60000;
-	this.targetedPollInterval = options.targetedPollInterval || 10000;
 	this.stationId = stationId;
 	this.currentTrack = null;
 
@@ -60,39 +59,9 @@ function SomaStream (stationId, options) {
 
 	this.hitCount = 0;
 	this.missCount = 0;
-
-	this.targetedPollingMode = false;
 }
 
 util.inherits(SomaStream, Readable);
-
-SomaStream.prototype.targetedPolling = function (timeout) {
-	if (timeout < 0) { timeout = this.pollInterval; }
-	debug('target', timeout);
-	clearTimeout(this.timer);
-
-	this.targetedPollingMode = true;
-
-	setTimeout(function () {
-		this.loop();
-	}.bind(this), timeout);
-};
-
-SomaStream.prototype.normalPolling = function () {
-	debug('normal');
-	clearTimeout(this.timer);
-
-	this.targetedPollingMode = false;
-
-	setTimeout(function () {
-		this.loop();
-	}.bind(this), this.pollInterval);
-}
-
-SomaStream.prototype.pollTimeout = function () {
-	debug('targetedPollingMode', this.targetedPollingMode);
-	return (this.targetedPollingMode) ? this.targetedPollInterval : this.pollInterval;
-};
 
 SomaStream.prototype.checkNowPlaying = function (callback) {
 	var self = this;
@@ -119,8 +88,7 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				self.currentTrack = trackId;
 
 				self.hitCount += 1;
-				debug('hit', +moment.utc() - time);
-				self.normalPolling();
+				debug('hit');
 
 				self.push({
 					time: time,
@@ -130,31 +98,33 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				});
 
 			} else {
-				debug('miss');
 				self.missCount += 1;
+				debug('miss');
 			}
 
-			debug('hitrate',  (self.hitCount / (self.hitCount + self.missCount) * 100) + '%' );
-			fs.appendFileSync('./hitrate.csv', moment.utc().format('YYYY-MM-DDTHH:mm:ss') + ';' + (Math.round( (self.hitCount / (self.hitCount + self.missCount) * 100) * 100) / 100) + '\n', 'utf8');
+			var hitrate =  Math.round(100 * self.hitCount / (self.hitCount + self.missCount) * 100) / 100;
+
+			debug('hitrate', hitrate);
+			fs.appendFileSync('hitrate.csv', moment.utc().format('YYYY-MM-DDTHH:mm:ss') + ';' + hitrate + '\n', 'utf8');
 
 			callback();
 		});
 	});
 };
 
-SomaStream.prototype.loop = function () {
-	this.checkNowPlaying(function () {
-		this.timer = setTimeout(function () {
-			this.loop();
+SomaStream.prototype.pollTimeout = function () {
+	return this.pollInterval;
+};
 
-		}.bind(this), this.pollTimeout());
-
-	}.bind(this));
+SomaStream.prototype.nextPoll = function () {
+	this.timer = setTimeout(function () {
+		this.checkNowPlaying(this.nextPoll.bind(this));
+	}.bind(this), this.pollTimeout());
 };
 
 SomaStream.prototype.start = function () {
 	process.nextTick(function () {
-		this.loop();
+		this.nextPoll();
 	}.bind(this));
 };
 
