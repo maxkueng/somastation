@@ -52,6 +52,7 @@ function SomaStream (stationId, options) {
 	}
 
 	this.pollInterval = options.pollInterval || 60000;
+	this.targetedPollingInterval = options.targetedPollingInterval || 10000;
 	this.stationId = stationId;
 	this.currentTrack = null;
 
@@ -59,6 +60,8 @@ function SomaStream (stationId, options) {
 
 	this.hitCount = 0;
 	this.missCount = 0;
+
+	this.targetedPollingMode = false;
 }
 
 util.inherits(SomaStream, Readable);
@@ -90,6 +93,8 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				self.hitCount += 1;
 				debug('hit');
 
+				self.resumeNormalPolling();
+
 				self.push({
 					time: time,
 					artist: artist,
@@ -103,28 +108,46 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 			}
 
 			var hitrate =  Math.round(100 * self.hitCount / (self.hitCount + self.missCount) * 100) / 100;
+			var miss = +moment.utc() - time;
 
-			debug('hitrate', hitrate);
-			fs.appendFileSync('hitrate.csv', moment.utc().format('YYYY-MM-DDTHH:mm:ss') + ';' + hitrate + '\n', 'utf8');
+			debug('hitrate', hitrate, miss);
+			fs.appendFileSync('hitrate.csv', moment.utc().format('YYYY-MM-DDTHH:mm:ss') + ';' + hitrate + ';' + miss + '\n', 'utf8');
 
 			callback();
 		});
 	});
 };
 
-SomaStream.prototype.pollTimeout = function () {
-	return this.pollInterval;
+SomaStream.prototype.targetedPoll = function (timeout) {
+	debug('mode', 'targeted', timeout);
+	this.targetedPollingMode = true;
+	clearTimeout(this.timer);
+
+	this.nextPoll(timeout);
 };
 
-SomaStream.prototype.nextPoll = function () {
+SomaStream.prototype.resumeNormalPolling = function () {
+	debug('mode', 'normal');
+	this.targetedPollingMode = false;
+};
+
+SomaStream.prototype.pollTimeout = function () {
+	return (this.targetedPollingMode) ? this.targetedPollingInterval : this.pollInterval;
+};
+
+SomaStream.prototype.nextPoll = function (timeout) {
+	if (typeof timeout === 'undefined') {
+		timeout = this.pollTimeout();
+	}
+
 	this.timer = setTimeout(function () {
 		this.checkNowPlaying(this.nextPoll.bind(this));
-	}.bind(this), this.pollTimeout());
+	}.bind(this), timeout);
 };
 
 SomaStream.prototype.start = function () {
 	process.nextTick(function () {
-		this.nextPoll();
+		this.nextPoll(0);
 	}.bind(this));
 };
 
