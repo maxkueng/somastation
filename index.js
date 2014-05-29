@@ -60,6 +60,7 @@ function SomaStream (stationId, options) {
 
 	this.hitCount = 0;
 	this.missCount = 0;
+	this.currentMissCount = 0;
 
 	this.targetedPollingMode = false;
 }
@@ -90,8 +91,8 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 			if (self.currentTrack !== trackId) {
 				self.currentTrack = trackId;
 
-				self.hitCount += 1;
 				debug('hit');
+				self.hitCount += 1;
 
 				self.resumeNormalPolling();
 
@@ -103,8 +104,15 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				});
 
 			} else {
-				self.missCount += 1;
 				debug('miss');
+
+				self.missCount += 1;
+				self.currentMissCount += 1;
+
+				if (self.currentMissCount > 3) {
+					self.resumeNormalPolling();
+					self.currentMissCount = 0;
+				}
 			}
 
 			var hitrate =  Math.round(100 * self.hitCount / (self.hitCount + self.missCount) * 100) / 100;
@@ -123,6 +131,7 @@ SomaStream.prototype.targetedPoll = function (timeout) {
 	this.targetedPollingMode = true;
 	clearTimeout(this.timer);
 
+	timeout += this.targetedPollingInterval;
 	this.nextPoll(timeout);
 };
 
