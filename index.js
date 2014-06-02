@@ -53,6 +53,7 @@ function SomaStream (stationId, options) {
 
 	this.pollInterval = options.pollInterval || 60000;
 	this.targetedPollingInterval = options.targetedPollingInterval || 10000;
+	this.targetedPollingEndurance = options.targetedPollingEndurance || 3;
 	this.stationId = stationId;
 	this.currentTrack = null;
 
@@ -109,7 +110,7 @@ SomaStream.prototype.checkNowPlaying = function (callback) {
 				self.missCount += 1;
 				self.currentMissCount += 1;
 
-				if (self.currentMissCount > 3) {
+				if (self.currentMissCount > self.targetedPollingEndurance) {
 					self.resumeNormalPolling();
 					self.currentMissCount = 0;
 				}
