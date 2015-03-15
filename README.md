@@ -1,55 +1,41 @@
 somastation
 ===========
 
-Stream recent tracks of a SomaFM radio station.
+A readable stream that continuously emits new metadata about what's currently
+playing on a particular SomaFM radio station.
 
-## API
+If you are looking to consume metadata of what's playing on SomaFM in real-time
+check out http://api.somascrobbler.com/ .
 
-### `new SomaStationStream(stationId [, options])`
+## Usage
 
- - `stationId` (required) is the name of the station found in SomaFM urls, such as "deepspaceone" for "Deep Space One"
- - `options` (optional)
-   - `pollInterval`: Interval in milliseconds in which the SomaFM API queries for new tracks. Default: 60000
-   - `targetedPollingInterval`: Interval in milliseconds in which the SomaFM API queries for new tracks during "targeted polling mode". Default: 10000
-   - `targetedPollingEndurance`: The maximum number of "missed" polls during "targeted polling mode" before switching to "normal polling mode". Default: 3
+### stream = somastation(stationId [, options])
 
-#### Targeted Polling
+**stationId**
+```js
+//  http://somafm.com/groovesalad/
+//  stationId =       ^^^^^^^^^^^
+```
 
-In oder to increase accuracy and reduce the amount of "missed" polls
-(i.e. polling without getting a new track because the current track is
-still playing), polling can be optimized using `.targetedPoll(timeout)`.
-For example, when the start time and the duration of the current track
-is known, the time until the next track can be estimated like so:
-`(track time + duration) - now`.
+**options**
 
-The calculated time span (in milliseconds) can then be used as the
-timeout for a targeted poll. Calling `.targetedPoll(timeout)` on the
-stream will stop polling for `timeout` milliseconds and then enter
-"targeted polling mode" in which the API will be queried every
-`targetedPollingInterval` milliseconds until a new track is available.
-To prevent the thing from going crazy if the `timeout` estimation has
-been completely off, the stream will return to "normal polling" after it
-has "missed" the beginning of a new track `targetedPollingEndurance`
-times.
-
-A 12-hour test on the Groove Salad has shown that with polling the API
-every 60 seconds, only 19.92% of all polls actually find a new track.
-With targeted polling with the default settings and track durations
-gathered from Last.fm the the success rate can be increased to 52.35%.  
-This can probably be increased further by getting more accurate track
-durations.
+ - `pollInterval` *(integer; optional; default: 30000)*: Poll interval in milliseconds
 
 ## Example
 
-```javascript
-var SomaStationStream = require('somastation'),
-    through = require('through');
+```js
+var through2 = require('through2');
+var somastation = require('somastation');
 
-new SomaStationStream('groovesalad')
-    .pipe(through(function (track) {
-        // track.time is the UTC unix offset in milliseconds
-        console.log(track);
-    }));
+var groovesalad = somastation('groovesalad', {
+  pollInterval: 30000
+});
+
+groovesalad
+  .pipe(through2.obj(function (track, encoding, callback) {
+    console.log(track);
+    callback();
+  }));
 ```
 
 Will print:
@@ -71,7 +57,7 @@ Will print:
 ...
 ```
 
-##License
+## License
 
 MIT License
 

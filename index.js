@@ -1,169 +1,149 @@
 var util = require('util');
-var Readable = require('stream').Readable;
-var http = require('http');
-var parseXML = require('xml2js').parseString;
-var moment = require('moment');
-var debug = require('debug')('somastation');
+var url = require('url');
+var Readable = require('readable-stream').Readable;
+var assign = require('object-assign');
+var request = require('request');
+var parseXml = require('xml2js').parseString;
 
-var fs = require('fs');
+var API_URL = 'http://android.somafm.com';
 
-exports = module.exports = SomaStream;
+exports = module.exports = function createStream (stationId, options) {
+	return new SomaStream(stationId, options);
+};
 
-function getStationXML (stationId, callback) {
-	var options = {
-		hostname: 'android.somafm.com',
-		port: 80,
-		path: '/songs/' + stationId + '.xml',
+function damnxml (v) {
+	return Array.isArray(v) ? v[0] : v;
+}
+
+function getStationUrl (stationId) {
+	return url.resolve(API_URL, '/songs/' + stationId + '.xml');
+}
+
+function getStationTracks (stationId, callback) {
+	var uri = getStationUrl(stationId);
+
+	request({
+		url: uri,
 		headers: {
-			'User-Agent': 'SomaFMAndroid/2.2.2/3.4.0-gadb2201'
+			'User-agent': 'SomaFMAndroid/2.2.2/3.4.0-gadb2201'
 		}
-	};
+	}, function (err, res, body) {
+		if (err) { return callback(err); }
+		if (res.statusCode !== 200) { return callback(new Error('API returned non-200 status')); }
 
-	http.get(options, function (res) {
-		var body = '';
-		
-		if (res.statusCode !== 200) { callback(new Error('Couldn\'t fetch ' + url)); }
+		parseXml(body, { trim: true }, function (err, data) {
+			if (err) { return callback(err); }
+			if (!data.songs || !data.songs.song) { return callback(new Error('API returned no tracks')); }
 
-		res.setEncoding('utf8');
+			var tracks = data.songs.song
+				.map(function (track) {
+					return {
+						artist: damnxml(track.artist),
+						title: damnxml(track.title),
+						album: damnxml(track.album),
+						time: +damnxml(track.date) * 1000,
+					};
+				});
 
-		res.on('data', function (chunk) {
-			body += chunk;
+			callback(null, tracks);
 		});
-
-		res.on('end', function () {
-			callback(null, body);
-		});
-
-	}).on('error', function (err) {
-		callback(err);
 	});
 }
 
-function SomaStream (stationId, options) {
-	if (!(this instanceof SomaStream)) { return new SomaStream(stationId, options); }
-	Readable.call(this, { objectMode: true });
+var stationHasUpdated = (function () {
+	var etags = {};
 
-	options = options || {};
+	return function (stationId, callback) {
+		var uri = getStationUrl(stationId);
 
-	if (!stationId) {
-		return process.nextTick(function () {
-			this.emit('error', new Error('Missing station ID'));
-		}.bind(this));
+		request.head({
+			url: uri,
+			headers: {
+				'User-agent': 'SomaFMAndroid/2.2.2/3.4.0-gadb2201'
+			}
+		}, function (err, req) {
+			if (err) { return callback(false); }
+			if (!req.headers.etag) { return callback(true); }
+			if (etags[stationId] === req.headers.etag) { return callback(false); }
+
+			etags[stationId] = req.headers.etag;
+
+			callback(true);
+		});
+	};
+})();
+
+var getNowPlaying = (function () {
+
+	var nowPlaying = {};
+
+	function fetchTrack (stationId, callback) {
+		getStationTracks(stationId, function (err, tracks) {
+			if (err) { return callback(err); }
+
+			var latestTrack = tracks.reduce(function (latest, track) {
+				if (!latest) { return track; }
+				if (track.time >= latest.time) { return track; }
+				return latest;
+			});
+
+			nowPlaying[stationId] = latestTrack;
+			callback(null, latestTrack);
+		});
 	}
 
-	this.pollInterval = options.pollInterval || 60000;
-	this.targetedPollingInterval = options.targetedPollingInterval || 10000;
-	this.targetedPollingEndurance = options.targetedPollingEndurance || 3;
+	return function (stationId, callback) {
+		stationHasUpdated(stationId, function (updated) {
+			if (!updated) { return callback(null, nowPlaying[stationId]); }
+
+			fetchTrack(stationId, callback);
+		});
+	};
+
+})();
+
+var defaultOptions = {
+	pollInterval: 30000
+};
+
+function SomaStream (stationId, options) {
+	Readable.call(this, { objectMode: true });
+
+	if (!stationId) { throw new Error('Station ID is required'); }
+
 	this.stationId = stationId;
-	this.currentTrack = null;
-
-	this.timer = null;
-
-	this.hitCount = 0;
-	this.missCount = 0;
-	this.currentMissCount = 0;
-
-	this.targetedPollingMode = false;
-}
+	this.options = assign({}, defaultOptions, options);
+};
 
 util.inherits(SomaStream, Readable);
 
-SomaStream.prototype.checkNowPlaying = function (callback) {
+SomaStream.prototype.poll = function () {
 	var self = this;
 
-	getStationXML(self.stationId, function (err, xml) {
-		if (err) { return callback(); } //self.emit('error', err); }
+	function pollAgain () {
+		setTimeout(self.poll.bind(self), self.options.pollInterval);
+	}
 
-		parseXML(xml, function (err, result) {
-			if (err) { return callback(); }
-			if (!result.songs || !result.songs.song || !result.songs.song.length) { return callback(); }
+	getNowPlaying(this.stationId, function (err, track) {
+		if (err) { return pollAgain() }
 
-			var song, time, artist, title, album, trackId;
+		if (!self.currentTrack || track.time > self.currentTrack.time) {
+			self.push(track);
+		}
 
-			song = result.songs.song[0];
+		self.currentTrack = track;
 
-			artist = String(song.artist[0]).trim();
-			title = String(song.title[0]).trim();
-			album = String(song.album[0]).trim();
-			time = Number(song.date[0]) * 1000;
-			
-			trackId = artist + '-' + title;
-
-			if (self.currentTrack !== trackId) {
-				self.currentTrack = trackId;
-
-				debug('hit');
-				self.hitCount += 1;
-
-				self.resumeNormalPolling();
-
-				self.push({
-					time: time,
-					artist: artist,
-					title: title,
-					album: album
-				});
-
-			} else {
-				debug('miss');
-
-				self.missCount += 1;
-				self.currentMissCount += 1;
-
-				if (self.currentMissCount > self.targetedPollingEndurance) {
-					self.resumeNormalPolling();
-					self.currentMissCount = 0;
-				}
-			}
-
-			var hitrate =  Math.round(100 * self.hitCount / (self.hitCount + self.missCount) * 100) / 100;
-			var miss = +moment.utc() - time;
-
-			debug('hitrate', hitrate, miss);
-			fs.appendFileSync('hitrate.csv', moment.utc().format('YYYY-MM-DDTHH:mm:ss') + ';' + hitrate + ';' + miss + '\n', 'utf8');
-
-			callback();
-		});
+		pollAgain();
 	});
 };
 
-SomaStream.prototype.targetedPoll = function (timeout) {
-	debug('mode', 'targeted', timeout);
-	this.targetedPollingMode = true;
-	clearTimeout(this.timer);
-
-	timeout += this.targetedPollingInterval;
-	this.nextPoll(timeout);
-};
-
-SomaStream.prototype.resumeNormalPolling = function () {
-	debug('mode', 'normal');
-	this.targetedPollingMode = false;
-};
-
-SomaStream.prototype.pollTimeout = function () {
-	return (this.targetedPollingMode) ? this.targetedPollingInterval : this.pollInterval;
-};
-
-SomaStream.prototype.nextPoll = function (timeout) {
-	if (typeof timeout === 'undefined') {
-		timeout = this.pollTimeout();
-	}
-
-	this.timer = setTimeout(function () {
-		this.checkNowPlaying(this.nextPoll.bind(this));
-	}.bind(this), timeout);
-};
-
-SomaStream.prototype.start = function () {
-	process.nextTick(function () {
-		this.nextPoll(0);
-	}.bind(this));
+SomaStream.prototype.startPolling = function () {
+	this.started = true;
+	process.nextTick(this.poll.bind(this));
 };
 
 SomaStream.prototype._read = function () {
-	if (!this.started) {
-		this.started = true;
-		this.start();
-	}
+	if (this.started) { return; }
+
+	this.startPolling();
 };

@@ -1,6 +1,6 @@
 {
   "name": "somastation",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A SomaFM radio station playlist stream.",
   "repository": {
     "type": "git",
@@ -22,8 +22,9 @@
     }
   ],
   "dependencies": {
-    "debug": "^0.8.1",
-    "moment": "^2.6.0",
+    "object-assign": "^2.0.0",
+    "readable-stream": "^1.0.33",
+    "request": "^2.53.0",
     "xml2js": "^0.4.2"
   }
 }
