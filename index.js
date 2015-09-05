@@ -5,7 +5,7 @@ var assign = require('object-assign');
 var request = require('request');
 var parseXml = require('xml2js').parseString;
 
-var API_URL = 'http://android.somafm.com';
+var API_URL = 'http://api.somafm.com';
 
 exports = module.exports = function createStream (stationId, options) {
 	return new SomaStream(stationId, options);
